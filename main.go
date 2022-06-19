@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"github.com/cenkalti/dominantcolor"
 	"github.com/nfnt/resize"
@@ -26,9 +27,29 @@ type Pixel struct {
 	A int
 }
 
-var filename string
+var fileName *string
+var direction *string
+var height *uint
+var airBlocks *bool
 
 func main() {
+
+	fileName = flag.String("filename", "", "Name of the file you want to convert, including it's extension. Use quotation marks.")
+	direction = flag.String("direction", "", "Facing direction of your pixel art (West, North, Ground)")
+	height = flag.Uint("height", 0, "How many blocks tall the output will be. [OPTIONAL, defaults to original height]")
+	airBlocks = flag.Bool("airblocks", false, "Will air blocks be included, will turn all transparent pixels to air. [OPTIONAL]")
+
+	flag.Parse()
+
+	log.Print("direction: ", *direction)
+
+	if (*direction != "West") && (*direction != "North") && (*direction != "Ground") {
+		log.Fatal("Incorrect direction inputted. Note that quotation marks are required for filenames.")
+	}
+
+	if *fileName == "" || *direction == "" {
+		log.Fatal("You must Provide all of the required arguments, see -h for help.")
+	}
 
 	image.RegisterFormat("png", "png", png.Decode, png.DecodeConfig)
 	image.RegisterFormat("jpg", "jpg", jpeg.Decode, jpeg.DecodeConfig)
@@ -36,11 +57,7 @@ func main() {
 	//	Save and load the data
 	handleBlockData()
 
-
-	//	Handle Input image
-	filename = getFilename()
-
-	file, err := os.Open(filename)
+	file, err := os.Open(*fileName)
 
 	if err != nil {
 		fmt.Println("Error: File could not be opened")
@@ -54,13 +71,18 @@ func main() {
 		}
 	}(file)
 
-	e := os.Remove(filename + ".mcfunction")
+	print("filename: ", *fileName+".mcfunction\n")
+
+	filename := *fileName
+	filenameNoExt := filename[:len(filename)-4]
+
+	e := os.Remove(filenameNoExt + ".mcfunction")
+
 	if e != nil {
 		println("No existing mcfunction file found")
-	}else {
+	} else {
 		println("Old mcfunction file removed")
 	}
-
 
 	// Convert chosen image to an array
 	pixels, err := imageToArray(file)
@@ -69,7 +91,6 @@ func main() {
 		fmt.Println("Error: Image could not be decoded")
 		os.Exit(1)
 	}
-
 
 	// Check the closest match; match the most dominant pixel (and its block data) to the one from the image
 	calculateMatch(pixels)
@@ -83,8 +104,7 @@ func main() {
 
 }
 
-
-func handleBlockData()  {
+func handleBlockData() {
 
 	if _, err := os.Stat("blockdata.txt"); err == nil {
 		fmt.Printf("Block data found!\n")
@@ -106,7 +126,6 @@ func handleBlockData()  {
 	}
 }
 
-
 var errInvalidFormat = errors.New("invalid format")
 
 func FindDomiantColor(fileInput string) (c color.RGBA, err error) {
@@ -124,7 +143,7 @@ func FindDomiantColor(fileInput string) (c color.RGBA, err error) {
 		return c, nil
 	}
 
-	s:=  dominantcolor.Hex(dominantcolor.Find(img))
+	s := dominantcolor.Hex(dominantcolor.Find(img))
 
 	// Hex format, so has to be converted into RGB
 
@@ -163,7 +182,7 @@ func FindDomiantColor(fileInput string) (c color.RGBA, err error) {
 	return
 }
 
-func generateBlockData(){
+func generateBlockData() {
 
 	inputPattern := "blocks/*.png"
 	files, err := filepath.Glob(inputPattern)
@@ -187,8 +206,7 @@ func generateBlockData(){
 
 }
 
-func saveBlockData(red uint32, blue uint32,green uint32,  filename string){
-
+func saveBlockData(red uint32, blue uint32, green uint32, filename string) {
 
 	// Strip file extension and path
 	filenameNoExt := filename[:len(filename)-4]
@@ -206,25 +224,10 @@ func saveBlockData(red uint32, blue uint32,green uint32,  filename string){
 		if err != nil {
 		}
 	}(f)
-	if _, err := f.WriteString(colordata+"\n"); err != nil {
+	if _, err := f.WriteString(colordata + "\n"); err != nil {
 		log.Println(err)
 	}
 }
-
-func getFilename() string {
-
-	fmt.Println("Enter filename for an image file: ")
-
-	var filename string
-
-	n, err := fmt.Scanln(&filename)
-	if err != nil {
-		fmt.Println(n, err)
-		return "File not found"
-	}
-	return filename
-}
-
 
 func imageToArray(file io.Reader) ([][]Pixel, error) {
 	img, _, err := image.Decode(file)
@@ -234,17 +237,9 @@ func imageToArray(file io.Reader) ([][]Pixel, error) {
 	}
 
 	bounds := img.Bounds()
-	fmt.Printf("Current image height: %d \n", bounds.Max.Y)
-	fmt.Printf("Would you like to scale it? Input new height, or 0 to skip.\n")
 
-	var newheight uint
-	_, err = fmt.Scan(&newheight)
-	if err != nil {
-
-	}
-
-	if  newheight != 0{
-		img = resize.Thumbnail(999, newheight, img, resize.Bicubic)
+	if *height != 0 {
+		img = resize.Thumbnail(999, *height, img, resize.Bicubic)
 	}
 
 	bounds = img.Bounds()
@@ -267,11 +262,13 @@ func rgbaToPixel(r uint32, g uint32, b uint32, a uint32) Pixel {
 	return Pixel{int(r / 257), int(g / 257), int(b / 257), int(a / 257)}
 }
 
-func mcFunctiongenerator(command string)  {
+func mcFunctiongenerator(command string) {
 
+	// Dereference the pointer
+	filename := *fileName
 	filenameNoExt := filename[:len(filename)-4]
 
-	f, err := os.OpenFile( filenameNoExt + ".mcfunction",
+	f, err := os.OpenFile(filenameNoExt+".mcfunction",
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Println(err)
@@ -281,36 +278,22 @@ func mcFunctiongenerator(command string)  {
 		if err != nil {
 		}
 	}(f)
-	if _, err := f.WriteString(command+"\n"); err != nil {
+	if _, err := f.WriteString(command + "\n"); err != nil {
 		log.Println(err)
 	}
 
 }
 
-func calculateMatch(pixels [][]Pixel)  {
-
-
-	var option int
-
-	print("Which direction do you want the blocks be facing? \n" +
-		"1. West\n" +
-		"2. North\n" +
-		"3. Ground\n")
-
-	_, err := fmt.Scanf("%d", &option)
-	if err != nil {
-		println("Input error")
-		return
-	}
+func calculateMatch(pixels [][]Pixel) {
 
 	var temp [][]Pixel
 
 	// Rotate matrix clockwise 90 degrees
 
-	for y := 0; y<len(pixels[1]); y++ {
+	for y := 0; y < len(pixels[1]); y++ {
 		var row []Pixel
-		for x := len(pixels)-1;  x>=0; x-- {
-			row = append(row,pixels[x][y])
+		for x := len(pixels) - 1; x >= 0; x-- {
+			row = append(row, pixels[x][y])
 		}
 		temp = append(temp, row)
 	}
@@ -318,13 +301,14 @@ func calculateMatch(pixels [][]Pixel)  {
 	pixels = temp
 
 	for i := range pixels {
-		for j :=range pixels[1] {
+		for j := range pixels[1] {
 
-			if pixels[i][j].A<70 {
-				// If wanted pixels with low alpha can be set to air, instead of ignoring, but this will increase the command count
-				//command := "setblock ~" + strconv.FormatInt(int64(i), 10) + " ~" + strconv.FormatInt(int64(j), 10) + " ~0 minecraft:air"
-				//mcFunctiongenerator(command)
-			}else {
+			if pixels[i][j].A < 70 {
+				if *airBlocks {
+					command := "setblock ~" + strconv.FormatInt(int64(i), 10) + " ~" + strconv.FormatInt(int64(j), 10) + " ~0 minecraft:air"
+					mcFunctiongenerator(command)
+				}
+			} else {
 				var currentblock string
 				var chosenblock string
 				difference := 0.0
@@ -357,41 +341,37 @@ func calculateMatch(pixels [][]Pixel)  {
 					tempB, _ := strconv.Atoi(split[2])
 					currentblock = split[3]
 
-					mean := (pixels[i][j].R - tempR) /2
+					mean := (pixels[i][j].R - tempR) / 2
 					tempR = pixels[i][j].R - tempR
 					tempG = pixels[i][j].G - tempG
 					tempB = pixels[i][j].B - tempB
-
 
 					Rweight := 512
 					Bweight := 767
 
 					difference = math.Sqrt(float64((((Rweight + mean) * tempR * tempR) >> 8) + 4*tempG*tempG + (((Bweight - mean) * tempB * tempB) >> 8)))
 
-					if difference<differenceCurrent {
+					if difference < differenceCurrent {
 						differenceCurrent = difference
 						chosenblock = currentblock
 					}
 				}
 
-
 				//setblock ~x ~y ~z minecraft:light_blue_glazed_terracotta
 				// x=facing west z=north
 
-				//west
-				if option==1 {
+				if *direction == "West" { //west
 					command := "setblock ~" + strconv.FormatInt(int64(i), 10) + " ~" + strconv.FormatInt(int64(j), 10) + " ~0 " + chosenblock
 					mcFunctiongenerator(command)
-				}
-				//north
-				if option==2 {
-					command := "setblock ~0" + " ~" + strconv.FormatInt(int64(j), 10) + " ~" + strconv.FormatInt(int64(i), 10) +" " + chosenblock
+				} else if *direction == "North" { //north
+					command := "setblock ~0" + " ~" + strconv.FormatInt(int64(j), 10) + " ~" + strconv.FormatInt(int64(i), 10) + " " + chosenblock
 					mcFunctiongenerator(command)
-				}
-				//ground
-				if option==3 {
-					command := "setblock ~" + strconv.FormatInt(int64(i), 10) + " ~0"  + " ~" + strconv.FormatInt(int64(j), 10) +" " + chosenblock
+				} else if *direction == "Ground" { //ground
+					command := "setblock ~" + strconv.FormatInt(int64(i), 10) + " ~0" + " ~" + strconv.FormatInt(int64(j), 10) + " " + chosenblock
 					mcFunctiongenerator(command)
+				} else {
+					// Should not happen
+					log.Fatal("Incorrect option")
 				}
 
 				if err := scanner.Err(); err != nil {
@@ -401,4 +381,3 @@ func calculateMatch(pixels [][]Pixel)  {
 		}
 	}
 }
-
